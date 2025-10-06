@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>This Week in Sedgefield</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Style for the audio player */
+        audio {
+            width: 100%;
+            margin-top: 1rem;
+            border-radius: 0.5rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-4xl">
+        <!-- Header Section -->
+        <header id="podcast-header" class="mb-8 p-6 bg-white rounded-xl shadow-md text-center hidden">
+            <img id="podcast-image" src="https://placehold.co/150x150/e2e8f0/334155?text=Podcast" alt="Podcast Cover Art" class="w-32 h-32 rounded-lg mx-auto mb-4 shadow-lg object-cover">
+            <h1 id="podcast-title" class="text-3xl md:text-4xl font-bold text-gray-900"></h1>
+            <p id="podcast-description" class="text-gray-600 mt-2"></p>
+        </header>
+
+        <!-- Episodes container -->
+        <main id="episodes-container">
+            <!-- Loading Spinner -->
+            <div id="loader" class="flex justify-center items-center py-20">
+                <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-indigo-600"></div>
+            </div>
+            <!-- Error Message -->
+            <div id="error-message" class="hidden text-center p-8 bg-red-100 text-red-700 rounded-lg shadow-md">
+                <h2 class="text-2xl font-semibold">Oops! Something went wrong.</h2>
+                <p class="mt-2">We couldn't fetch the podcast feed. Please check the URL or try again later.</p>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // The RSS feed URL provided by the user
+            const RSS_URL = 'https://anchor.fm/s/76069728/podcast/rss';
+            // We use a CORS proxy to bypass browser security restrictions for fetching the RSS feed.
+            const PROXY_URL = 'https://corsproxy.io/?';
+
+            const episodesContainer = document.getElementById('episodes-container');
+            const loader = document.getElementById('loader');
+            const errorMessage = document.getElementById('error-message');
+            
+            // Elements for the main podcast info
+            const podcastHeader = document.getElementById('podcast-header');
+            const podcastTitle = document.getElementById('podcast-title');
+            const podcastDescription = document.getElementById('podcast-description');
+            const podcastImage = document.getElementById('podcast-image');
+            
+            // To track the currently playing audio for Media Session API
+            let currentPlayingAudio = null;
+
+
+            async function fetchPodcastFeed() {
+                try {
+                    const response = await fetch(PROXY_URL + RSS_URL);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const str = await response.text();
+                    const data = new window.DOMParser().parseFromString(str, "text/xml");
+
+                    // --- Populate Podcast Header Info ---
+                    const channelTitle = data.querySelector("channel > title")?.textContent || 'Podcast Feed';
+                    const description = data.querySelector("channel > description")?.textContent || 'No description available.';
+                    const imageUrl = data.querySelector("channel > image > url")?.textContent;
+                    
+                    podcastTitle.textContent = channelTitle;
+                    podcastDescription.textContent = description;
+                    if (imageUrl) {
+                        podcastImage.src = imageUrl;
+                    }
+                    podcastHeader.classList.remove('hidden');
+
+
+                    // --- Populate Podcast Episodes ---
+                    const items = data.querySelectorAll("item");
+                    let html = '';
+
+                    items.forEach(item => {
+                        const title = item.querySelector("title")?.textContent || "No Title";
+                        const description = item.querySelector("description")?.textContent || "No description available.";
+                        const pubDateStr = item.querySelector("pubDate")?.textContent;
+                        const enclosure = item.querySelector("enclosure");
+                        const audioUrl = enclosure ? enclosure.getAttribute('url') : null;
+
+                        const pubDate = pubDateStr ? new Date(pubDateStr).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
+                        }) : 'No date';
+
+                        // Build the HTML for each episode card
+                        html += `
+                            <article class="bg-white rounded-xl shadow-md overflow-hidden mb-6 transform hover:scale-105 transition-transform duration-300">
+                                <div class="p-6 md:p-8">
+                                    <p class="text-sm text-indigo-600 font-semibold mb-1">${pubDate}</p>
+                                    <h2 class="text-2xl font-bold text-gray-900 mb-3">${title}</h2>
+                                    <div class="text-gray-700 leading-relaxed prose">${description}</div>
+                                    ${audioUrl ? `
+                                    <audio controls src="${audioUrl}" data-title="${title.replace(/"/g, '&quot;')}" class="mt-4 rounded-lg">
+                                        Your browser does not support the audio element.
+                                    </audio>
+                                    ` : '<p class="text-red-500 mt-4">Audio not available for this episode.</p>'}
+                                </div>
+                            </article>
+                        `;
+                    });
+
+                    loader.style.display = 'none';
+                    episodesContainer.innerHTML = html;
+                    
+                    // After rendering the audio players, set up their event listeners
+                    setupAudioPlayers();
+
+                } catch (error) {
+                    console.error("Failed to fetch RSS feed:", error);
+                    loader.style.display = 'none';
+                    errorMessage.classList.remove('hidden');
+                }
+            }
+            
+            /**
+             * Sets up event listeners for all audio elements on the page.
+             * This handles saving playback position and Media Session API integration.
+             */
+            function setupAudioPlayers() {
+                const audioPlayers = document.querySelectorAll('audio');
+                
+                audioPlayers.forEach(audio => {
+                    let lastSaveTime = 0;
+
+                    // 1. Restore playback position when audio is ready
+                    audio.addEventListener('loadedmetadata', () => {
+                        const savedTime = localStorage.getItem(audio.src);
+                        if (savedTime) {
+                            audio.currentTime = parseFloat(savedTime);
+                        }
+                    });
+
+                    // 2. Save playback position periodically during playback
+                    audio.addEventListener('timeupdate', () => {
+                        // Throttle saving to once every 5 seconds to avoid performance issues
+                        if (Date.now() - lastSaveTime > 5000) {
+                            if (audio.currentTime > 0 && !audio.ended) {
+                                localStorage.setItem(audio.src, audio.currentTime);
+                            } else {
+                                // Clean up storage if audio is finished or at the start
+                                localStorage.removeItem(audio.src);
+                            }
+                            lastSaveTime = Date.now();
+                        }
+                    });
+
+                    // 3. Handle Media Session API and ensure only one track plays at a time
+                    audio.addEventListener('play', (event) => {
+                        const thisAudio = event.target;
+                        
+                        // Pause any other playing audio
+                        if (currentPlayingAudio && currentPlayingAudio !== thisAudio) {
+                            currentPlayingAudio.pause();
+                        }
+                        currentPlayingAudio = thisAudio;
+
+                        // Update the lock screen media controls
+                        updateMediaSession();
+                    });
+                });
+            }
+
+            /**
+             * Updates the Media Session API with the currently playing track's metadata.
+             * This populates the lock screen and system media controls.
+             */
+            function updateMediaSession() {
+                if (!('mediaSession' in navigator) || !currentPlayingAudio) {
+                    return;
+                }
+                
+                const episodeTitle = currentPlayingAudio.getAttribute('data-title') || 'Unknown Title';
+                const podcastName = podcastTitle.textContent || 'Unknown Podcast';
+                const artworkUrl = podcastImage.src || '';
+
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: episodeTitle,
+                    artist: podcastName,
+                    album: podcastName,
+                    artwork: [{ src: artworkUrl, sizes: '150x150', type: 'image/png' }]
+                });
+
+                // Set up action handlers for media keys and lock screen controls
+                navigator.mediaSession.setActionHandler('play', () => currentPlayingAudio.play());
+                navigator.mediaSession.setActionHandler('pause', () => currentPlayingAudio.pause());
+                navigator.mediaSession.setActionHandler('seekbackward', () => { currentPlayingAudio.currentTime -= 10; });
+                navigator.mediaSession.setActionHandler('seekforward', () => { currentPlayingAudio.currentTime += 10; });
+            }
+
+
+            fetchPodcastFeed();
+        });
+    </script>
+
+</body>
+</html>
+
