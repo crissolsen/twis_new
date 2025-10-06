@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>This Week in Sedgefield</title>
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#4338ca">
+    <link rel="apple-touch-icon" href="logo.png">
+    <link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoiUG9kY2FzdCBGZWVkIFZpZXdlciIsInNob3J0X25hbWUiOiJQb2RjYXN0cyIsImRlc2NyaXB0aW9uIjoiQW4gaW5zdGFsbGFibGUgd2ViIGFwcCB0byBicm93c2UgYW5kIGxpc3RlbiB0byBwb2RjYXN0IGZlZWRzLiIsInN0YXJ0X3VybCI6Ii4iLCJkaXNwbGF5Ijoic3RhbmRhbG9uZSIsImJhY2tncm91bmRfY29sb3IiOiIjZjNmNGY2IiwidGhlbWVfY29sb3IiOiIjNDMzOGNhIiwiaWNvbnMiOlt7InNyYyI6ImxvZ28ucG5nIiwic2l6ZXMiOiIxOTJ4MTkyIiwidHlwZSI6ImltYWdlL3BuZyJ9LHsic3JjIjoibG9nby5wbmciLCJzaXplcyI6IjUxMng1MTIiLCJ0eXBlIjoiaW1hZ2UvcG5nIn1dfQ==">
+    
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Google Fonts: Inter -->
@@ -28,7 +33,7 @@
     <div class="container mx-auto p-4 md:p-8 max-w-4xl">
         <!-- Header Section -->
         <header id="podcast-header" class="mb-8 p-6 bg-white rounded-xl shadow-md text-center hidden">
-            <img id="podcast-image" src="https://placehold.co/150x150/e2e8f0/334155?text=Podcast" alt="Podcast Cover Art" class="w-32 h-32 rounded-lg mx-auto mb-4 shadow-lg object-cover">
+            <img id="podcast-image" src="logo.png" alt="Podcast Cover Art" class="w-32 h-32 rounded-lg mx-auto mb-4 shadow-lg object-cover">
             <h1 id="podcast-title" class="text-3xl md:text-4xl font-bold text-gray-900"></h1>
             <p id="podcast-description" class="text-gray-600 mt-2"></p>
         </header>
@@ -48,6 +53,55 @@
     </div>
 
     <script>
+        // PWA Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            // The service worker code is defined as a string.
+            const swCode = `
+                const CACHE_NAME = 'podcast-viewer-cache-v1';
+                // The single HTML file is the main asset to cache. '.' refers to the root/index file.
+                const urlsToCache = ['.'];
+
+                // Install event: opens a cache and adds the app shell to it.
+                self.addEventListener('install', event => {
+                    event.waitUntil(
+                        caches.open(CACHE_NAME)
+                            .then(cache => {
+                                console.log('Service Worker: Opened cache');
+                                return cache.addAll(urlsToCache);
+                            })
+                    );
+                });
+
+                // Fetch event: serves the app shell from cache for navigation requests.
+                // All other requests (like the RSS feed proxy) go to the network.
+                self.addEventListener('fetch', event => {
+                    if (event.request.mode === 'navigate') {
+                        event.respondWith(
+                            caches.match(event.request)
+                                .then(response => {
+                                    return response || fetch(event.request);
+                                })
+                        );
+                    }
+                });
+            `;
+            // Create a Blob from the service worker string.
+            const swBlob = new Blob([swCode], { type: 'application/javascript' });
+            // Create a URL for the Blob.
+            const swUrl = URL.createObjectURL(swBlob);
+
+            // Register the service worker on window load.
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register(swUrl)
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    })
+                    .catch(err => {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+            });
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             // The RSS feed URL provided by the user
             const RSS_URL = 'https://anchor.fm/s/76069728/podcast/rss';
