@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>This Week in Sedgefield</title>
-    <!-- PWA Meta Tags -->
-    <meta name="theme-color" content="#4338ca">
+    <!-- PWA Meta Tags (for "Add to Homescreen" functionality) -->
+    <meta name="theme-color" content="#df6a0f">
     <link rel="apple-touch-icon" href="logo.png">
     <link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoiUG9kY2FzdCBGZWVkIFZpZXdlciIsInNob3J0X25hbWUiOiJQb2RjYXN0cyIsImRlc2NyaXB0aW9uIjoiQW4gaW5zdGFsbGFibGUgd2ViIGFwcCB0byBicm93c2UgYW5kIGxpc3RlbiB0byBwb2RjYXN0IGZlZWRzLiIsInN0YXJ0X3VybCI6Ii4iLCJkaXNwbGF5Ijoic3RhbmRhbG9uZSIsImJhY2tncm91bmRfY29sb3IiOiIjZjNmNGY2IiwidGhlbWVfY29sb3IiOiIjNDMzOGNhIiwiaWNvbnMiOlt7InNyYyI6ImxvZ28ucG5nIiwic2l6ZXMiOiIxOTJ4MTkyIiwidHlwZSI6ImltYWdlL3BuZyJ9LHsic3JjIjoibG9nby5wbmciLCJzaXplcyI6IjUxMng1MTIiLCJ0eXBlIjoiaW1hZ2UvcG5nIn1dfQ==">
     
@@ -20,11 +20,12 @@
         body {
             font-family: 'Inter', sans-serif;
         }
-        /* Style for the audio player */
-        audio {
-            width: 100%;
-            margin-top: 1rem;
-            border-radius: 0.5rem;
+        .prose p {
+            margin-bottom: 1em;
+        }
+        /* Hide the default audio player */
+        .custom-audio-player audio {
+            display: none;
         }
     </style>
 </head>
@@ -53,125 +54,74 @@
     </div>
 
     <script>
-        // PWA Service Worker Registration
-        if ('serviceWorker' in navigator) {
-            // The service worker code is defined as a string.
-            const swCode = `
-                const CACHE_NAME = 'podcast-viewer-cache-v1';
-                // The single HTML file is the main asset to cache. '.' refers to the root/index file.
-                const urlsToCache = ['.'];
-
-                // Install event: opens a cache and adds the app shell to it.
-                self.addEventListener('install', event => {
-                    event.waitUntil(
-                        caches.open(CACHE_NAME)
-                            .then(cache => {
-                                console.log('Service Worker: Opened cache');
-                                return cache.addAll(urlsToCache);
-                            })
-                    );
-                });
-
-                // Fetch event: serves the app shell from cache for navigation requests.
-                // All other requests (like the RSS feed proxy) go to the network.
-                self.addEventListener('fetch', event => {
-                    if (event.request.mode === 'navigate') {
-                        event.respondWith(
-                            caches.match(event.request)
-                                .then(response => {
-                                    return response || fetch(event.request);
-                                })
-                        );
-                    }
-                });
-            `;
-            // Create a Blob from the service worker string.
-            const swBlob = new Blob([swCode], { type: 'application/javascript' });
-            // Create a URL for the Blob.
-            const swUrl = URL.createObjectURL(swBlob);
-
-            // Register the service worker on window load.
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register(swUrl)
-                    .then(registration => {
-                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
-                    })
-                    .catch(err => {
-                        console.log('ServiceWorker registration failed: ', err);
-                    });
-            });
-        }
-
         document.addEventListener('DOMContentLoaded', () => {
             // The RSS feed URL provided by the user
             const RSS_URL = 'https://anchor.fm/s/76069728/podcast/rss';
-            // We use a CORS proxy to bypass browser security restrictions for fetching the RSS feed.
             const PROXY_URL = 'https://corsproxy.io/?';
 
             const episodesContainer = document.getElementById('episodes-container');
             const loader = document.getElementById('loader');
             const errorMessage = document.getElementById('error-message');
             
-            // Elements for the main podcast info
             const podcastHeader = document.getElementById('podcast-header');
             const podcastTitle = document.getElementById('podcast-title');
             const podcastDescription = document.getElementById('podcast-description');
             const podcastImage = document.getElementById('podcast-image');
             
-            // To track the currently playing audio for Media Session API
             let currentPlayingAudio = null;
-
 
             async function fetchPodcastFeed() {
                 try {
                     const response = await fetch(PROXY_URL + RSS_URL);
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     const str = await response.text();
                     const data = new window.DOMParser().parseFromString(str, "text/xml");
 
-                    // --- Populate Podcast Header Info ---
                     const channelTitle = data.querySelector("channel > title")?.textContent || 'Podcast Feed';
                     const description = data.querySelector("channel > description")?.textContent || 'No description available.';
                     const imageUrl = data.querySelector("channel > image > url")?.textContent;
                     
                     podcastTitle.textContent = channelTitle;
                     podcastDescription.textContent = description;
-                    if (imageUrl) {
-                        podcastImage.src = imageUrl;
-                    }
+                    if (imageUrl) podcastImage.src = imageUrl;
                     podcastHeader.classList.remove('hidden');
 
-
-                    // --- Populate Podcast Episodes ---
                     const items = data.querySelectorAll("item");
                     let html = '';
 
-                    items.forEach(item => {
+                    items.forEach((item, index) => {
                         const title = item.querySelector("title")?.textContent || "No Title";
                         const description = item.querySelector("description")?.textContent || "No description available.";
                         const pubDateStr = item.querySelector("pubDate")?.textContent;
                         const enclosure = item.querySelector("enclosure");
                         const audioUrl = enclosure ? enclosure.getAttribute('url') : null;
+                        const pubDate = pubDateStr ? new Date(pubDateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'No date';
+                        const escapedTitle = title.replace(/"/g, '&quot;');
 
-                        const pubDate = pubDateStr ? new Date(pubDateStr).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric'
-                        }) : 'No date';
-
-                        // Build the HTML for each episode card
                         html += `
-                            <article class="bg-white rounded-xl shadow-md overflow-hidden mb-6 transform hover:scale-105 transition-transform duration-300">
+                            <article class="bg-white rounded-xl shadow-md overflow-hidden mb-6">
                                 <div class="p-6 md:p-8">
                                     <p class="text-sm text-indigo-600 font-semibold mb-1">${pubDate}</p>
                                     <h2 class="text-2xl font-bold text-gray-900 mb-3">${title}</h2>
                                     <div class="text-gray-700 leading-relaxed prose">${description}</div>
                                     ${audioUrl ? `
-                                    <audio controls src="${audioUrl}" data-title="${title.replace(/"/g, '&quot;')}" class="mt-4 rounded-lg">
-                                        Your browser does not support the audio element.
-                                    </audio>
+                                    <div class="custom-audio-player mt-6" data-title="${escapedTitle}">
+                                        <audio preload="metadata" src="${audioUrl}"></audio>
+                                        <div class="flex items-center gap-3">
+                                            <button class="play-pause-btn p-3 rounded-full bg-orange-600 text-white shadow-lg hover:bg-indigo-700 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            </button>
+                                            <div class="flex-grow flex items-center gap-2">
+                                                <span class="current-time-display text-sm font-medium text-gray-600">00:00</span>
+                                                <div class="progress-bar-container bg-gray-200 rounded-full h-2 flex-grow cursor-pointer group">
+                                                    <div class="progress-bar bg-indigo-500 h-2 rounded-full relative" style="width: 0%;">
+                                                        <div class="absolute right-0 top-1/2 -mt-1.5 -mr-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                                                    </div>
+                                                </div>
+                                                <span class="duration-display text-sm font-medium text-gray-600">00:00</span>
+                                            </div>
+                                        </div>
+                                    </div>
                                     ` : '<p class="text-red-500 mt-4">Audio not available for this episode.</p>'}
                                 </div>
                             </article>
@@ -180,9 +130,7 @@
 
                     loader.style.display = 'none';
                     episodesContainer.innerHTML = html;
-                    
-                    // After rendering the audio players, set up their event listeners
-                    setupAudioPlayers();
+                    setupCustomAudioPlayers();
 
                 } catch (error) {
                     console.error("Failed to fetch RSS feed:", error);
@@ -190,65 +138,82 @@
                     errorMessage.classList.remove('hidden');
                 }
             }
+
+            function formatTime(seconds) {
+                const minutes = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
             
-            /**
-             * Sets up event listeners for all audio elements on the page.
-             * This handles saving playback position and Media Session API integration.
-             */
-            function setupAudioPlayers() {
-                const audioPlayers = document.querySelectorAll('audio');
+            function setupCustomAudioPlayers() {
+                const players = document.querySelectorAll('.custom-audio-player');
                 
-                audioPlayers.forEach(audio => {
+                const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`;
+                const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`;
+                
+                players.forEach(player => {
+                    const audio = player.querySelector('audio');
+                    const playPauseBtn = player.querySelector('.play-pause-btn');
+                    const progressBar = player.querySelector('.progress-bar');
+                    const progressBarContainer = player.querySelector('.progress-bar-container');
+                    const currentTimeDisplay = player.querySelector('.current-time-display');
+                    const durationDisplay = player.querySelector('.duration-display');
                     let lastSaveTime = 0;
 
-                    // 1. Restore playback position when audio is ready
-                    audio.addEventListener('loadedmetadata', () => {
-                        const savedTime = localStorage.getItem(audio.src);
-                        if (savedTime) {
-                            audio.currentTime = parseFloat(savedTime);
+                    playPauseBtn.addEventListener('click', () => {
+                        if (audio.paused) {
+                            audio.play();
+                        } else {
+                            audio.pause();
                         }
                     });
 
-                    // 2. Save playback position periodically during playback
+                    audio.addEventListener('play', () => {
+                        playPauseBtn.innerHTML = pauseIcon;
+                        if (currentPlayingAudio && currentPlayingAudio !== audio) {
+                            currentPlayingAudio.pause();
+                        }
+                        currentPlayingAudio = audio;
+                        updateMediaSession();
+                    });
+
+                    audio.addEventListener('pause', () => {
+                        playPauseBtn.innerHTML = playIcon;
+                    });
+                    
+                    audio.addEventListener('loadedmetadata', () => {
+                        durationDisplay.textContent = formatTime(audio.duration);
+                        const savedTime = localStorage.getItem(audio.src);
+                        if (savedTime) audio.currentTime = parseFloat(savedTime);
+                    });
+                    
                     audio.addEventListener('timeupdate', () => {
-                        // Throttle saving to once every 5 seconds to avoid performance issues
+                        progressBar.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
+                        currentTimeDisplay.textContent = formatTime(audio.currentTime);
+
                         if (Date.now() - lastSaveTime > 5000) {
                             if (audio.currentTime > 0 && !audio.ended) {
                                 localStorage.setItem(audio.src, audio.currentTime);
                             } else {
-                                // Clean up storage if audio is finished or at the start
                                 localStorage.removeItem(audio.src);
                             }
                             lastSaveTime = Date.now();
                         }
                     });
 
-                    // 3. Handle Media Session API and ensure only one track plays at a time
-                    audio.addEventListener('play', (event) => {
-                        const thisAudio = event.target;
-                        
-                        // Pause any other playing audio
-                        if (currentPlayingAudio && currentPlayingAudio !== thisAudio) {
-                            currentPlayingAudio.pause();
-                        }
-                        currentPlayingAudio = thisAudio;
-
-                        // Update the lock screen media controls
-                        updateMediaSession();
+                    progressBarContainer.addEventListener('click', (e) => {
+                        const rect = progressBarContainer.getBoundingClientRect();
+                        const clickX = e.clientX - rect.left;
+                        const percentage = clickX / rect.width;
+                        audio.currentTime = audio.duration * percentage;
                     });
                 });
             }
 
-            /**
-             * Updates the Media Session API with the currently playing track's metadata.
-             * This populates the lock screen and system media controls.
-             */
             function updateMediaSession() {
-                if (!('mediaSession' in navigator) || !currentPlayingAudio) {
-                    return;
-                }
+                if (!('mediaSession' in navigator) || !currentPlayingAudio) return;
                 
-                const episodeTitle = currentPlayingAudio.getAttribute('data-title') || 'Unknown Title';
+                const episodeTitle = currentPlayingAudio.closest('.custom-audio-player').getAttribute('data-title') || 'Unknown Title';
                 const podcastName = podcastTitle.textContent || 'Unknown Podcast';
                 const artworkUrl = podcastImage.src || '';
 
@@ -256,16 +221,14 @@
                     title: episodeTitle,
                     artist: podcastName,
                     album: podcastName,
-                    artwork: [{ src: artworkUrl, sizes: '150x150', type: 'image/png' }]
+                    artwork: [{ src: artworkUrl, sizes: '150x150', type: 'image/jpeg' }]
                 });
 
-                // Set up action handlers for media keys and lock screen controls
                 navigator.mediaSession.setActionHandler('play', () => currentPlayingAudio.play());
                 navigator.mediaSession.setActionHandler('pause', () => currentPlayingAudio.pause());
                 navigator.mediaSession.setActionHandler('seekbackward', () => { currentPlayingAudio.currentTime -= 10; });
                 navigator.mediaSession.setActionHandler('seekforward', () => { currentPlayingAudio.currentTime += 10; });
             }
-
 
             fetchPodcastFeed();
         });
